@@ -7,13 +7,13 @@ defmodule JSLurk.CLI do
   alias JSLurk.{Scanner, Formatter, Downloader}
 
   @banner """
-  ╔═══════════════════════════════════════════════════════════════╗
-  ║                                                               ║
-  ║   JSLurk                                                      ║
-  ║   A tool for analysing javascript files                       ║
-  ║   @author : hibernatus                                        ║
-  ║                                                               ║
-  ╚═══════════════════════════════════════════════════════════════╝
+  ╔═══════════════════════════════════════════════════════════════=╗
+  ║                                                                ║
+  ║ JSLurk                                                         ║
+  ║ A tool for scanning javascript files for interesting tidbits.  ║
+  ║ @author : hibernatus                                           ║
+  ║                                                                ║
+  ╚═══════════════════════════════════════════════════════════════=╝
   """
 
   def main(args) do

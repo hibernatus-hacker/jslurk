@@ -1,6 +1,6 @@
 # JSLurk
 
-JSLurk - A tool for analysing javascript files.
+A tool for scanning javascript files for interesting tidbits.
 
 ## Installation
 
