@@ -1,6 +1,6 @@
 # JSLurk
 
-JSLurk - JavaScript Bug Bounty Tool
+JSLurk - A tool for analysing javascript files.
 
 ## Installation
 
@@ -9,11 +9,13 @@ mix deps.get
 mix escript.build
 ```
 
-## usage
+## Usage
 
 ```sh
 ./jslurk -h
 ./jslurk -d ./js_files.txt
 cat ./js_files.txt | ./jslurk
+cat ../js_files.txt | ./jslurk --download ./d --output ./out.json
+./jslurk https://example.com/app.js
 ```
 

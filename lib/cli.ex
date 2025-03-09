@@ -10,7 +10,7 @@ defmodule JSLurk.CLI do
   ╔═══════════════════════════════════════════════════════════════╗
   ║                                                               ║
   ║   JSLurk                                                      ║
-  ║   JavaScript Bug Bounty Tool                                  ║
+  ║   A tool for analysing javascript files                       ║
   ║   @author : hibernatus                                        ║
   ║                                                               ║
   ╚═══════════════════════════════════════════════════════════════╝
@@ -72,75 +72,154 @@ defmodule JSLurk.CLI do
  defp scan_urls(urls, opts) do
     verbose = Keyword.get(opts, :verbose, false)
     output_file = Keyword.get(opts, :output, nil)
-    download_dir = Keyword.get(opts, :download_dir, "downloads")
+    download_dir = Keyword.get(opts, :download, nil)
 
+    # Process each URL and print results immediately
     results =
       urls
       |> Enum.map(fn url ->
-        IO.puts("Scanning: #{url}")
+        # Get the scan result
         result = Scanner.scan_url(url, verbose)
 
-        # If download flag is set and we have content, save it
-        if download_dir && Map.has_key?(result, :content) do
-          Downloader.save(url, result[:content], download_dir)
-          # Remove content from result to avoid bloating the output
-          Map.delete(result, :content)
-        else
-          result
+        # Handle downloads if needed
+        result_without_content =
+          if download_dir && Map.has_key?(result, :content) do
+            Downloader.save(url, result[:content], download_dir)
+            Map.delete(result, :content)
+          else
+            result
+          end
+
+        # Handle output file if specified
+        # Print the result immediately if no output file is specified
+        if output_file == nil do
+          print_single_result(result_without_content)
         end
+
+        # Return the result for collection
+        result_without_content
       end)
 
     if output_file do
-      File.write!(output_file, Jason.encode!(results, pretty: true))
-      IO.puts("Results saved to #{output_file}")
-    else
-      # Print detailed findings to console when no output file is specified
-      print_detailed_findings(results)
+      # Truncate string values in the results before encoding to JSON
+      truncated_results = truncate_values_for_json(results)
+
+      # Add metadata about truncation
+      final_output = %{
+        metadata: %{
+          truncated: true,
+          max_string_length: 300,
+          generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+          note: "String values longer than 300 characters have been truncated to reduce file size."
+        },
+        results: truncated_results
+      }
+
+      File.write!(output_file, Jason.encode!(final_output, pretty: true))
+      IO.puts("Results saved to #{output_file} (with values truncated to 300 characters)")
     end
+
+#     # Handle output file if specified
+#     if output_file do
+#       File.write!(output_file, Jason.encode!(results, pretty: true))
+#       IO.puts("Results saved to #{output_file}")
+#     end
 
     # Always print the summary
     Formatter.print_summary(results)
   end
 
-  # New function to print detailed findings
-  defp print_detailed_findings(results) do
-    IO.puts("\n=== Detailed Findings ===\n")
+  @doc """
+  Recursively truncates all string values in a data structure to a maximum length.
+  Preserves certain fields like URLs and keys without truncation.
+  """
+  def truncate_values_for_json(data, max_length \\ 300) do
+    # Define non-truncated keys
+    non_truncated_keys = ["url", "key", "type", "timestamp"]
 
-    Enum.each(results, fn result ->
-      IO.puts("URL: #{result.url}")
-      IO.puts("Status: #{result.status}")
-      IO.puts("Timestamp: #{result.timestamp}")
-
-      # Print JSON objects if any were found
-      if result.json_objects > 0 do
-        IO.puts("\n  JSON Objects (#{result.json_objects}):")
-        print_json_objects(result.details.json_objects)
+    # Helper function to truncate a single value
+    truncate_value = fn value, key ->
+      if is_binary(value) && String.length(value) > max_length && !Enum.member?(non_truncated_keys, key) do
+        String.slice(value, 0, max_length) <> "... (truncated)"
+      else
+        value
       end
+    end
 
-      # Print URLs if any were found
-      if result.urls.absolute > 0 || result.urls.relative > 0 || result.urls.api_endpoints > 0 do
-        IO.puts("\n  URLs:")
-        print_urls(result.details.urls)
+    # Recursive function to process the data structure
+    process_data = fn data, func ->
+      cond do
+        # For maps, recursively process each value
+        is_map(data) ->
+          data
+          |> Enum.map(fn {k, v} ->
+            # If the value is a complex data structure, recurse
+            new_v = cond do
+              is_map(v) -> func.(v, func)
+              is_list(v) -> func.(v, func)
+              true -> truncate_value.(v, k)
+            end
+            {k, new_v}
+          end)
+          |> Enum.into(%{})
+
+        # For lists, recursively process each item
+        is_list(data) ->
+          Enum.map(data, fn v ->
+            cond do
+              is_map(v) -> func.(v, func)
+              is_list(v) -> func.(v, func)
+              is_binary(v) -> truncate_value.(v, "")
+              true -> v
+            end
+          end)
+
+        # For other values, return as is
+        true -> data
       end
+    end
 
-      # Print DOM security issues if any were found
-      if result.dom_security.manipulations > 0 ||
-         result.dom_security.templates > 0 ||
-         result.dom_security.sinks > 0 ||
-         result.dom_security.sensitive_comments > 0 do
-        IO.puts("\n  DOM Security Issues:")
-        print_dom_security(result.details.dom_security)
-      end
-
-      # Print secrets if any were found
-      if result.secrets > 0 do
-        IO.puts("\n  Potential Secrets (#{result.secrets}):")
-        print_secrets(result.details.secrets)
-      end
-
-      IO.puts("\n" <> String.duplicate("-", 80) <> "\n")
-    end)
+    # Start the recursive processing
+    process_data.(data, process_data)
   end
+
+  # New function to print a single result
+  defp print_single_result(result) do
+    IO.puts("\n" <> String.duplicate("=", 80))
+    IO.puts("URL: #{result.url}")
+    IO.puts("Status: #{result.status}")
+    IO.puts("Timestamp: #{result.timestamp}")
+
+    # Print JSON objects if any were found
+    if result.json_objects > 0 do
+      IO.puts("\nJSON Objects (#{result.json_objects}):")
+      print_json_objects(result.details.json_objects)
+    end
+
+    # Print URLs if any were found
+    if result.urls.absolute > 0 || result.urls.relative > 0 || result.urls.api_endpoints > 0 do
+      IO.puts("\nURLs:")
+      print_urls(result.details.urls)
+    end
+
+    # Print DOM security issues if any were found
+    if result.dom_security.manipulations > 0 ||
+       result.dom_security.templates > 0 ||
+       result.dom_security.sinks > 0 ||
+       result.dom_security.sensitive_comments > 0 do
+      IO.puts("\nDOM Security Issues:")
+      print_dom_security(result.details.dom_security)
+    end
+
+    # Print secrets if any were found
+    if result.secrets > 0 do
+      IO.puts("\nPotential Secrets (#{result.secrets}):")
+      print_secrets(result.details.secrets)
+    end
+
+    IO.puts(String.duplicate("=", 80))
+  end
+
 
   # Helper function to print JSON objects
   defp print_json_objects(json_objects) do
@@ -310,7 +389,7 @@ defmodule JSLurk.CLI do
 
   defp print_help do
     IO.puts("""
-    JSLurk - JavaScript Bug Bounty Tool
+    JSLurk - A tool for analysing javascript files
 
     Usage:
       jslurk [options] [URLs...]
