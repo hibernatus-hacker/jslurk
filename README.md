@@ -4,9 +4,29 @@ A tool for scanning javascript files for interesting tidbits.
 
 ## Installation
 
+Depends on [Elixir](https://elixir-lang.org/) which is available from package managers or I recommend getting the latest version using: [asdf](https://asdf-vm.com/guide/getting-started.html)
+
 ```sh
+
+sudo apt-get install elixir # easy method
+
+# or using asdf for the latest version
+
+asdf plugin add erlang
+asdf plugin add elixir
+asdf install erlang 26.2.1
+asdf install elixir 1.18.0-otp-26
+
+# test it works
+
+iex
+
+# install dependencies
+
+cd ./jslurk
 mix deps.get
 mix escript.build
+
 ```
 
 ## Usage
