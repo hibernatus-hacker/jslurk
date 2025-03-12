@@ -19,3 +19,16 @@ cat ../js_files.txt | ./jslurk --download ./d --output ./out.json
 ./jslurk https://example.com/app.js
 ```
 
+# other tools
+
+jsluice
+https://github.com/cc1a2b/JShunter
+https://github.com/w9w/JSA
+
+# obtaining old js files
+
+waybackurls
+gau
+
+
+

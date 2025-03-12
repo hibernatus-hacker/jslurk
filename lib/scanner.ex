@@ -24,7 +24,6 @@ defmodule JSLurk.Scanner do
         if verbose do
           IO.puts("Successfully requested #{url} - Status: #{response.status_code}")
         end
-
         # First scan the content
         result = scan_content(url, response.body, response.status_code)
         # Then add the content to the result

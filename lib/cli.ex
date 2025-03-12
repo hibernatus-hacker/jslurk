@@ -72,10 +72,11 @@ defmodule JSLurk.CLI do
  defp scan_urls(urls, opts) do
     verbose = Keyword.get(opts, :verbose, false)
     output_file = Keyword.get(opts, :output, nil)
-    download_dir = Keyword.get(opts, :download, nil)
+    download = Keyword.get(opts, :download, false)
+    download_dir = Keyword.get(opts, :download_dir, "downloads")
 
-    # Process each URL and print results immediately
-    results =
+    # Process each URL and collect results
+    all_results =
       urls
       |> Enum.map(fn url ->
         # Get the scan result
@@ -83,26 +84,45 @@ defmodule JSLurk.CLI do
 
         # Handle downloads if needed
         result_without_content =
-          if download_dir && Map.has_key?(result, :content) do
+          if download && Map.has_key?(result, :content) do
             Downloader.save(url, result[:content], download_dir)
             Map.delete(result, :content)
           else
             result
           end
 
-        # Handle output file if specified
-        # Print the result immediately if no output file is specified
-        if output_file == nil do
-          print_single_result(result_without_content)
-        end
-
         # Return the result for collection
         result_without_content
       end)
 
+    # Separate successful and error results
+    {success_results, error_results} = Enum.split_with(all_results, fn result ->
+      result[:status] != :error && !Map.has_key?(result, :error)
+    end)
+
+    # Print error results immediately if no output file is specified
+    if output_file == nil do
+      Enum.each(error_results, fn result ->
+        IO.puts("\n" <> String.duplicate("=", 80))
+        IO.puts("URL: #{result.url}")
+        IO.puts("Status: ERROR")
+        IO.puts("Error: #{Map.get(result, :error, "Unknown error")}")
+        IO.puts("Timestamp: #{result.timestamp}")
+        IO.puts(String.duplicate("=", 80))
+      end)
+    end
+
+    # Print successful results immediately if no output file is specified
+    if output_file == nil do
+      Enum.each(success_results, fn result ->
+        print_single_result(result)
+      end)
+    end
+
+    # Handle output file if specified
     if output_file do
-      # Truncate string values in the results before encoding to JSON
-      truncated_results = truncate_values_for_json(results)
+      # Prepare all results for JSON output
+      json_ready_results = all_results |> truncate_values_for_json()
 
       # Add metadata about truncation
       final_output = %{
@@ -110,23 +130,56 @@ defmodule JSLurk.CLI do
           truncated: true,
           max_string_length: 300,
           generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
-          note: "String values longer than 300 characters have been truncated to reduce file size."
+          note: "String values longer than 300 characters have been truncated to reduce file size.",
+          success_count: length(success_results),
+          error_count: length(error_results)
         },
-        results: truncated_results
+        results: json_ready_results
       }
 
       File.write!(output_file, Jason.encode!(final_output, pretty: true))
       IO.puts("Results saved to #{output_file} (with values truncated to 300 characters)")
     end
 
-#     # Handle output file if specified
-#     if output_file do
-#       File.write!(output_file, Jason.encode!(results, pretty: true))
-#       IO.puts("Results saved to #{output_file}")
-#     end
+    # Always print the summary with all results
+    Formatter.print_summary(all_results)
+  end
 
-    # Always print the summary
-    Formatter.print_summary(results)
+  # Simplified function to print a single successful result
+  defp print_single_result(result) do
+    IO.puts("\n" <> String.duplicate("=", 80))
+    IO.puts("URL: #{result.url}")
+    IO.puts("Status: #{result.status}")
+    IO.puts("Timestamp: #{result.timestamp}")
+
+    # Print JSON objects if any were found
+    if result.json_objects > 0 do
+      IO.puts("\nJSON Objects (#{result.json_objects}):")
+      print_json_objects(result.details.json_objects)
+    end
+
+    # Print URLs if any were found
+    if result.urls.absolute > 0 || result.urls.relative > 0 || result.urls.api_endpoints > 0 do
+      IO.puts("\nURLs:")
+      print_urls(result.details.urls)
+    end
+
+    # Print DOM security issues if any were found
+    if result.dom_security.manipulations > 0 ||
+       result.dom_security.templates > 0 ||
+       result.dom_security.sinks > 0 ||
+       result.dom_security.sensitive_comments > 0 do
+      IO.puts("\nDOM Security Issues:")
+      print_dom_security(result.details.dom_security)
+    end
+
+    # Print secrets if any were found
+    if result.secrets > 0 do
+      IO.puts("\nPotential Secrets (#{result.secrets}):")
+      print_secrets(result.details.secrets)
+    end
+
+    IO.puts(String.duplicate("=", 80))
   end
 
   @doc """
@@ -135,7 +188,7 @@ defmodule JSLurk.CLI do
   """
   def truncate_values_for_json(data, max_length \\ 300) do
     # Define non-truncated keys
-    non_truncated_keys = ["url", "key", "type", "timestamp"]
+    non_truncated_keys = ["url", "key", "type", "timestamp", "error"]
 
     # Helper function to truncate a single value
     truncate_value = fn value, key ->
@@ -182,43 +235,45 @@ defmodule JSLurk.CLI do
     # Start the recursive processing
     process_data.(data, process_data)
   end
-
-  # New function to print a single result
-  defp print_single_result(result) do
-    IO.puts("\n" <> String.duplicate("=", 80))
-    IO.puts("URL: #{result.url}")
-    IO.puts("Status: #{result.status}")
-    IO.puts("Timestamp: #{result.timestamp}")
-
-    # Print JSON objects if any were found
-    if result.json_objects > 0 do
-      IO.puts("\nJSON Objects (#{result.json_objects}):")
-      print_json_objects(result.details.json_objects)
-    end
-
-    # Print URLs if any were found
-    if result.urls.absolute > 0 || result.urls.relative > 0 || result.urls.api_endpoints > 0 do
-      IO.puts("\nURLs:")
-      print_urls(result.details.urls)
-    end
-
-    # Print DOM security issues if any were found
-    if result.dom_security.manipulations > 0 ||
-       result.dom_security.templates > 0 ||
-       result.dom_security.sinks > 0 ||
-       result.dom_security.sensitive_comments > 0 do
-      IO.puts("\nDOM Security Issues:")
-      print_dom_security(result.details.dom_security)
-    end
-
-    # Print secrets if any were found
-    if result.secrets > 0 do
-      IO.puts("\nPotential Secrets (#{result.secrets}):")
-      print_secrets(result.details.secrets)
-    end
-
-    IO.puts(String.duplicate("=", 80))
-  end
+#
+#   # New function to print a single result
+#   defp print_single_result(result) do
+#     IO.puts("\n" <> String.duplicate("=", 80))
+#     IO.puts("URL: #{result.url}")
+#     IO.puts("Status: #{result.status}")
+#     IO.puts("Timestamp: #{result.timestamp}")
+#
+#     IO.inspect(result.json_objects)
+#
+#     # Print JSON objects if any were found
+#     if result.json_objects > 0 do
+#       IO.puts("\nJSON Objects (#{result.json_objects}):")
+#       print_json_objects(result.details.json_objects)
+#     end
+#
+#     # Print URLs if any were found
+#     if result.urls.absolute > 0 || result.urls.relative > 0 || result.urls.api_endpoints > 0 do
+#       IO.puts("\nURLs:")
+#       print_urls(result.details.urls)
+#     end
+#
+#     # Print DOM security issues if any were found
+#     if result.dom_security.manipulations > 0 ||
+#        result.dom_security.templates > 0 ||
+#        result.dom_security.sinks > 0 ||
+#        result.dom_security.sensitive_comments > 0 do
+#       IO.puts("\nDOM Security Issues:")
+#       print_dom_security(result.details.dom_security)
+#     end
+#
+#     # Print secrets if any were found
+#     if result.secrets > 0 do
+#       IO.puts("\nPotential Secrets (#{result.secrets}):")
+#       print_secrets(result.details.secrets)
+#     end
+#
+#     IO.puts(String.duplicate("=", 80))
+#   end
 
 
   # Helper function to print JSON objects
