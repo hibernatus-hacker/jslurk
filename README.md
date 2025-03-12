@@ -19,7 +19,7 @@ cat ../js_files.txt | ./jslurk --download ./d --output ./out.json
 ./jslurk https://example.com/app.js
 ```
 
-# other tools
+# other similar tools
 
 jsluice
 https://github.com/cc1a2b/JShunter
@@ -30,5 +30,6 @@ https://github.com/w9w/JSA
 waybackurls
 gau
 
+## work in progress.
 
-
+This tool is work in progress... so come back soon : )
