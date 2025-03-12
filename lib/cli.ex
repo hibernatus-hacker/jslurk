@@ -52,21 +52,180 @@ defmodule JSLurk.CLI do
         print_help()
 
       opts[:domains] ->
+        # For file input, we'll still process in batch
         opts[:domains]
         |> File.read!()
         |> String.split("\n", trim: true)
         |> scan_urls(opts)
 
       true ->
-        # Read from stdin (pipe)
-        IO.read(:stdio, :eof)
-        |> String.split("\n", trim: true)
-        |> scan_urls(opts)
+        # Process stdin URLs in real-time
+        IO.puts("Reading and processing URLs from stdin in real-time...")
+
+        # Process each URL as it arrives
+        all_results = process_stdin_urls_realtime(opts)
+
+        # Print summary at the end
+        if length(all_results) > 0 do
+          IO.puts("\nProcessed #{length(all_results)} URLs from stdin")
+
+          # Handle output file if specified
+          handle_output_file(opts, all_results)
+
+          # Always print the summary with all results
+          Formatter.print_summary(all_results)
+        else
+          IO.puts("No URLs found from stdin. Please provide URLs or use --help for more information.")
+        end
     end
   end
 
-  defp process({opts, urls}) do
-    scan_urls(urls, opts)
+  # Process URLs from stdin in real-time
+  defp process_stdin_urls_realtime(opts) do
+    # Initialize counters and accumulators
+    patience_seconds = 30
+    process_urls_with_patience(opts, [], 0, 0, patience_seconds)
+  end
+
+  # Process URLs with patience
+  defp process_urls_with_patience(opts, results_acc, elapsed_seconds, url_count, max_patience) when elapsed_seconds >= max_patience do
+    # We've reached the maximum wait time
+    IO.puts("Reached maximum wait time of #{max_patience} seconds")
+    Enum.reverse(results_acc)
+  end
+
+  defp process_urls_with_patience(opts, results_acc, elapsed_seconds, url_count, max_patience) do
+    # Show waiting message occasionally
+    if url_count == 0 && rem(elapsed_seconds, 10) == 0 && elapsed_seconds > 0 do
+      IO.puts("Waited #{elapsed_seconds} seconds, no URLs yet...")
+    end
+
+    # Try to read a line with a 1-second timeout
+    case read_line_with_timeout(1000) do
+      {:ok, line} ->
+        # Got a line, check if it's a URL
+        clean_line = String.trim(line)
+
+        if String.match?(clean_line, ~r/^https?:\/\//) do
+          # Process this URL immediately
+          IO.puts("\nProcessing URL: #{clean_line}")
+          result = process_single_url(clean_line, opts)
+
+          # Continue with updated state
+          process_urls_with_patience(opts, [result | results_acc], 0, url_count + 1, max_patience)
+        else
+          # Not a URL, keep waiting
+          process_urls_with_patience(opts, results_acc, elapsed_seconds, url_count, max_patience)
+        end
+
+      :timeout ->
+        # No input for 1 second, increment counter and try again
+        process_urls_with_patience(opts, results_acc, elapsed_seconds + 1, url_count, max_patience)
+
+      :eof ->
+        # End of file reached
+        if url_count > 0 do
+          IO.puts("End of input reached after processing #{url_count} URLs")
+        else
+          IO.puts("End of input reached with no URLs found")
+        end
+        Enum.reverse(results_acc)
+    end
+  end
+
+  # Process a single URL and return its result
+  defp process_single_url(url, opts) do
+    verbose = Keyword.get(opts, :verbose, false)
+    download = Keyword.get(opts, :download, false)
+    download_dir = Keyword.get(opts, :download_dir, "downloads")
+    output_file = Keyword.get(opts, :output, nil)
+
+    # Get the scan result
+    result = Scanner.scan_url(url, verbose)
+
+    # Handle downloads if needed
+    result_without_content =
+      if download && Map.has_key?(result, :content) do
+        Downloader.save(url, result[:content], download_dir)
+        Map.delete(result, :content)
+      else
+        result
+      end
+
+    # Print the result immediately if no output file is specified
+    if output_file == nil do
+      if result_without_content[:status] == :error || Map.has_key?(result_without_content, :error) do
+        print_error_result(result_without_content)
+      else
+        print_single_result(result_without_content)
+      end
+    end
+
+    # Return the result for collection
+    result_without_content
+  end
+
+  # Helper to print error results
+  defp print_error_result(result) do
+    IO.puts("\n" <> String.duplicate("=", 80))
+    IO.puts("URL: #{result.url}")
+    IO.puts("Status: ERROR")
+    IO.puts("Error: #{Map.get(result, :error, "Unknown error")}")
+    IO.puts("Timestamp: #{result.timestamp}")
+    IO.puts(String.duplicate("=", 80))
+  end
+
+  # Helper to handle output file
+  defp handle_output_file(opts, results) do
+    output_file = Keyword.get(opts, :output, nil)
+
+    if output_file do
+      # Separate successful and error results for metadata
+      {success_results, error_results} = Enum.split_with(results, fn result ->
+        result[:status] != :error && !Map.has_key?(result, :error)
+      end)
+
+      # Prepare all results for JSON output
+      json_ready_results = results |> truncate_values_for_json()
+
+      # Add metadata about truncation
+      final_output = %{
+        metadata: %{
+          truncated: true,
+          max_string_length: 300,
+          generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+          note: "String values longer than 300 characters have been truncated to reduce file size.",
+          success_count: length(success_results),
+          error_count: length(error_results)
+        },
+        results: json_ready_results
+      }
+
+      File.write!(output_file, Jason.encode!(final_output, pretty: true))
+      IO.puts("Results saved to #{output_file} (with values truncated to 300 characters)")
+    end
+  end
+
+  defp read_line_with_timeout(timeout) do
+    # Create a task that reads a line
+    task = Task.async(fn -> IO.gets("") end)
+
+    # Wait for the task with timeout
+    case Task.yield(task, timeout) do
+      {:ok, :eof} ->
+        :eof
+
+      {:ok, {:error, _reason}} ->
+        :eof
+
+      {:ok, line} ->
+        {:ok, line}
+
+      nil ->
+        # Task didn't complete within timeout
+        Task.shutdown(task)
+        :timeout
+    end
   end
 
  defp scan_urls(urls, opts) do
