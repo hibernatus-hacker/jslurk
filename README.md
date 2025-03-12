@@ -19,6 +19,6 @@ cat ../js_files.txt | ./jslurk --download ./d --output ./out.json
 ./jslurk https://example.com/app.js
 ```
 
-# work in progress.
+## work in progress.
 
 This tool is work in progress... so come back soon : )
