@@ -21,13 +21,13 @@ cat ../js_files.txt | ./jslurk --download ./d --output ./out.json
 katana -em js -jc -d 5 -c 50 -silent -u https://harrypotter.com | ./jslurk
 ```
 
-# Other similar tools
+## Other similar tools
 
 * jsluice
 * https://github.com/cc1a2b/JShunter
 * https://github.com/w9w/JSA
 
-# Obtaining old js files
+## Obtaining old js files
 
 * waybackurls
 * gau
@@ -42,6 +42,6 @@ I'm also going to improve each module so that it returns better results.
 
 This tool is work in progress... so come back soon : )
 
-# Running globally
+## Running globally
 
 You can add the folder to your PATH for now. This will be improved in future.
