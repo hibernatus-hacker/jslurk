@@ -136,8 +136,8 @@ defmodule JSLurk.CLI do
   # Process a single URL and return its result
   defp process_single_url(url, opts) do
     verbose = Keyword.get(opts, :verbose, false)
-    download = Keyword.get(opts, :download, false)
-    download_dir = Keyword.get(opts, :download_dir, "downloads")
+    download = Keyword.get(opts, :download, "downloads")
+#     download_dir = Keyword.get(opts, :download_dir, )
     output_file = Keyword.get(opts, :output, nil)
 
     # Get the scan result
@@ -146,7 +146,7 @@ defmodule JSLurk.CLI do
     # Handle downloads if needed
     result_without_content =
       if download && Map.has_key?(result, :content) do
-        Downloader.save(url, result[:content], download_dir)
+        Downloader.save(url, result[:content], download)
         Map.delete(result, :content)
       else
         result
