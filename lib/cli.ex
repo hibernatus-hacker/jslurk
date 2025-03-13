@@ -278,7 +278,7 @@ defmodule JSLurk.CLI do
       end)
 
       # Prepare all results for JSON output
-      json_ready_results = all_results |> truncate_values_for_json()
+#       json_ready_results = all_results |> truncate_values_for_json()
 
       # Add metadata about truncation
       final_output = %{
@@ -290,7 +290,7 @@ defmodule JSLurk.CLI do
           success_count: length(success_results),
           error_count: length(error_results)
         },
-        results: json_ready_results
+        results: all_results
       }
 
       File.write!(output_file, Jason.encode!(final_output, pretty: true))
@@ -394,57 +394,32 @@ defmodule JSLurk.CLI do
 
   # Helper function to print JSON objects
   defp print_json_objects(json_objects) do
-    # Limit to first 5 objects to avoid overwhelming the console
-    Enum.take(json_objects, 5)
-    |> Enum.with_index(1)
+    Enum.with_index(json_objects, 1)
     |> Enum.each(fn {obj, index} ->
       json_preview = Jason.encode!(obj, pretty: true)
                     |> String.split("\n")
-                    |> Enum.take(3)
                     |> Enum.join("\n")
-                    |> then(fn preview ->
-                         if String.length(preview) > 300, do: String.slice(preview, 0, 300) <> "...", else: preview
-                       end)
 
       IO.puts("    #{index}. Size: #{byte_size(Jason.encode!(obj))} bytes")
       IO.puts("       Preview: #{json_preview}")
     end)
-
-    if length(json_objects) > 5 do
-      IO.puts("    ... and #{length(json_objects) - 5} more")
-    end
   end
 
   # Helper function to print URLs
   defp print_urls(urls) do
     if length(urls.absolute_urls) > 0 do
       IO.puts("    Absolute URLs (#{length(urls.absolute_urls)}):")
-      Enum.take(urls.absolute_urls, 5)
-      |> Enum.each(fn url -> IO.puts("      - #{url}") end)
-
-      if length(urls.absolute_urls) > 5 do
-        IO.puts("      ... and #{length(urls.absolute_urls) - 5} more")
-      end
+      Enum.each(urls.absolute_urls, fn url -> IO.puts("      - #{url}") end)
     end
 
     if length(urls.relative_urls) > 0 do
       IO.puts("    Relative URLs (#{length(urls.relative_urls)}):")
-      Enum.take(urls.relative_urls, 5)
-      |> Enum.each(fn url -> IO.puts("      - #{url}") end)
-
-      if length(urls.relative_urls) > 5 do
-        IO.puts("      ... and #{length(urls.relative_urls) - 5} more")
-      end
+      Enum.each(urls.relative_urls, fn url -> IO.puts("      - #{url}") end)
     end
 
     if length(urls.api_endpoints) > 0 do
       IO.puts("    API Endpoints (#{length(urls.api_endpoints)}):")
-      Enum.take(urls.api_endpoints, 5)
-      |> Enum.each(fn url -> IO.puts("      - #{url}") end)
-
-      if length(urls.api_endpoints) > 5 do
-        IO.puts("      ... and #{length(urls.api_endpoints) - 5} more")
-      end
+      Enum.each(urls.api_endpoints, fn url -> IO.puts("      - #{url}") end)
     end
   end
 
@@ -452,39 +427,24 @@ defmodule JSLurk.CLI do
   defp print_dom_security(dom_security) do
     if length(dom_security.dom_manipulations) > 0 do
       IO.puts("    DOM Manipulations (#{length(dom_security.dom_manipulations)}):")
-      Enum.take(dom_security.dom_manipulations, 3)
-      |> Enum.each(fn item ->
+      Enum.each(dom_security.dom_manipulations, fn item ->
         IO.puts("      - [Line #{item.line}] #{item.type}: #{truncate(item.code, 60)}")
       end)
-
-      if length(dom_security.dom_manipulations) > 3 do
-        IO.puts("      ... and #{length(dom_security.dom_manipulations) - 3} more")
-      end
     end
 
     if length(dom_security.dom_sinks) > 0 do
       IO.puts("    DOM Sinks (#{length(dom_security.dom_sinks)}):")
-      Enum.take(dom_security.dom_sinks, 3)
-      |> Enum.each(fn item ->
+      Enum.each(dom_security.dom_sinks, fn item ->
         IO.puts("      - [Line #{item.line}] #{item.type} (Risk: #{item.risk}): #{truncate(item.code, 60)}")
       end)
-
-      if length(dom_security.dom_sinks) > 3 do
-        IO.puts("      ... and #{length(dom_security.dom_sinks) - 3} more")
-      end
     end
 
     sensitive_comments = Enum.filter(dom_security.comments, & &1.sensitive)
     if length(sensitive_comments) > 0 do
       IO.puts("    Sensitive Comments (#{length(sensitive_comments)}):")
-      Enum.take(sensitive_comments, 3)
-      |> Enum.each(fn item ->
+      Enum.each(sensitive_comments, fn item ->
         IO.puts("      - [Line #{item.line}] #{truncate(item.content, 60)}")
       end)
-
-      if length(sensitive_comments) > 3 do
-        IO.puts("      ... and #{length(sensitive_comments) - 3} more")
-      end
     end
   end
 
@@ -504,34 +464,19 @@ defmodule JSLurk.CLI do
     # Print high confidence secrets first
     if high = grouped[:high] do
       IO.puts("    High Confidence (#{length(high)}):")
-      Enum.take(high, 3)
-      |> Enum.each(&print_secret_item/1)
-
-      if length(high) > 3 do
-        IO.puts("      ... and #{length(high) - 3} more")
-      end
+      Enum.each(high, &print_secret_item/1)
     end
 
     # Print medium confidence secrets
     if medium = grouped[:medium] do
       IO.puts("    Medium Confidence (#{length(medium)}):")
-      Enum.take(medium, 3)
-      |> Enum.each(&print_secret_item/1)
-
-      if length(medium) > 3 do
-        IO.puts("      ... and #{length(medium) - 3} more")
-      end
+      Enum.each(medium, &print_secret_item/1)
     end
 
-    # Print low confidence secrets (limited)
+    # Print low confidence secrets
     if low = grouped[:low] do
       IO.puts("    Low Confidence (#{length(low)}):")
-      Enum.take(low, 2)
-      |> Enum.each(&print_secret_item/1)
-
-      if length(low) > 2 do
-        IO.puts("      ... and #{length(low) - 2} more")
-      end
+      Enum.each(low, &print_secret_item/1)
     end
   end
 
